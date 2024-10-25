@@ -13,45 +13,45 @@ fn main() {
     // println!("{}", serialized.len());
     // println!("{}", hex::encode(serialized));
 
-    // let mut hash_table = CuckooHashTable::new();
+    let hash_table = CuckooHashTable::new();
 
-    // // Insert some entries
-    // hash_table.insert("key1", "value1").unwrap();
-    // hash_table.insert("key2", "value2").unwrap();
-    // hash_table.insert("key3", "value3").unwrap();
-    // hash_table.insert("key4", "value4").unwrap();
-    // hash_table.insert("key5", "value5").unwrap();
-    // hash_table.print_all();
-    // hash_table.insert("key6", "value6").unwrap();
-    // hash_table.insert("key7", "value7").unwrap();
-    // hash_table.insert("key8", "value8").unwrap();
-    // hash_table.insert("key9", "value9").unwrap();
-    // hash_table.insert("key10", "value10").unwrap();
+    // Insert some entries
+    hash_table.insert("key1", "value1").unwrap();
+    hash_table.insert("key2", "value2").unwrap();
+    hash_table.insert("key3", "value3").unwrap();
+    hash_table.insert("key4", "value4").unwrap();
+    hash_table.insert("key5", "value5").unwrap();
+    hash_table.print_all();
+    hash_table.insert("key6", "value6").unwrap();
+    hash_table.insert("key7", "value7").unwrap();
+    hash_table.insert("key8", "value8").unwrap();
+    hash_table.insert("key9", "value9").unwrap();
+    hash_table.insert("key10", "value10").unwrap();
 
-    // // println!("{}", hash_table.hash1(&"key1"));
-    // // println!("{}", hash_table.hash2(&"key1"));
+    // println!("{}", hash_table.hash1(&"key1"));
+    // println!("{}", hash_table.hash2(&"key1"));
 
-    // // println!("{}", hash_table.hash1(&"key2"));
-    // // println!("{}", hash_table.hash2(&"key2"));
+    // println!("{}", hash_table.hash1(&"key2"));
+    // println!("{}", hash_table.hash2(&"key2"));
 
-    // // println!("{}", hash_table.hash1(&"key3"));
-    // // println!("{}", hash_table.hash2(&"key3"));
+    // println!("{}", hash_table.hash1(&"key3"));
+    // println!("{}", hash_table.hash2(&"key3"));
 
-    // // Lookup
-    // println!("Lookup key1: {:?}", hash_table.lookup(&"key1"));
-    // println!("Lookup key2: {:?}", hash_table.lookup(&"key2"));
-    // println!("Lookup key4: {:?}", hash_table.lookup(&"key4"));
-    // hash_table.print_all();
+    // Lookup
+    println!("Lookup key1: {:?}", hash_table.lookup(&"key1"));
+    println!("Lookup key2: {:?}", hash_table.lookup(&"key2"));
+    println!("Lookup key100: {:?}", hash_table.lookup(&"key100"));
+    hash_table.print_all();
 
-    // // Remove
-    // hash_table.remove(&"key2");
-    // println!("Lookup key2 after removal: {:?}", hash_table.lookup(&"key2"));
-    // println!("Lookup key1: {:?}", hash_table.lookup(&"key1"));
-    // println!("Lookup key3: {:?}", hash_table.lookup(&"key3"));
-    // hash_table.print_all();
+    // Remove
+    hash_table.remove(&"key2");
+    println!("Lookup key2 after removal: {:?}", hash_table.lookup(&"key2"));
+    println!("Lookup key1: {:?}", hash_table.lookup(&"key1"));
+    println!("Lookup key3: {:?}", hash_table.lookup(&"key3"));
+    hash_table.print_all();
 
-    // hash_table.insert("key2", "value2new").unwrap();
-    // println!("Lookup key2: {:?}", hash_table.lookup(&"key2"));
+    hash_table.insert("key2", "value2new").unwrap();
+    println!("Lookup key2: {:?}", hash_table.lookup(&"key2"));
 
     let hash_table = Arc::new(CuckooHashTable::<&str, &str>::new());
 
@@ -66,6 +66,10 @@ fn main() {
         ("key8", "value8"),
         ("key9", "value9"),
         ("key10", "value10"),
+        ("key11", "value11"),
+        ("key12", "value12"),
+        ("key13", "value13"),
+        ("key14", "value14"),
     ];
 
     let mut handles = vec![];
@@ -73,7 +77,7 @@ fn main() {
         let hash_table = Arc::clone(&hash_table);
 
         let handle = thread::spawn(move || {
-            match hash_table.insert(&key.clone(), &value.clone()) {
+            match hash_table.insert(key.clone(), value.clone()) {
                 Ok(()) => {
                     println!("Inserted ({}, {})", key, value);
                 },
