@@ -20,6 +20,7 @@ fn main() {
     hash_table.insert("key3", "value3").unwrap();
     hash_table.insert("key4", "value4").unwrap();
     hash_table.insert("key5", "value5").unwrap();
+    hash_table.print_all();
     hash_table.insert("key6", "value6").unwrap();
     hash_table.insert("key7", "value7").unwrap();
     hash_table.insert("key8", "value8").unwrap();
