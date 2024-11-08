@@ -1,97 +1,75 @@
-#![feature(get_mut_unchecked)]
-mod cuckoo;
-use cuckoo::CuckooHashTable;
-use std::sync::Arc;
-use std::thread;
+use vstd::atomic_ghost::*;
+use vstd::cell::*;
+use vstd::modes::*;
+use vstd::prelude::*;
+use vstd::{pervasive::*, *};
+
+verus! {
+struct_with_invariants!{
+    struct Lock<T> {
+        // The type placeholders are filled in by the
+        // struct_with_invariants! macro.
+        pub atomic: AtomicBool<_, Option<cell::PointsTo<T>>, _>,
+        pub cell: PCell<T>,
+    }
+
+    spec fn wf(self) -> bool {
+        invariant on atomic with (cell)
+            is (v: bool, g: Option<cell::PointsTo<T>>)
+        {
+            match g {
+                None => v == true,
+                Some(points_to) => points_to.id() == cell.id() && points_to.is_init() && v == false,
+            }
+        }
+    }
+}
+
+impl<T> Lock<T> {
+    fn new(t: T) -> (lock: Self)
+        ensures lock.wf()
+    {
+        let (cell, Tracked(cell_perm)) = PCell::new(t);
+        let atomic = AtomicBool::new(Ghost(cell), false, Tracked(Some(cell_perm)));
+        Lock { atomic, cell }
+    }
+
+    fn acquire(&self) -> (points_to: Tracked<cell::PointsTo<T>>)
+        requires self.wf(),
+        ensures points_to@.id() == self.cell.id(), points_to@.is_init()
+    {
+        loop
+            invariant self.wf(),
+        {
+            let tracked mut points_to_opt = None;
+            let res = atomic_with_ghost!(&self.atomic => compare_exchange(false, true);
+                ghost g => {
+                    tracked_swap(&mut points_to_opt, &mut g);
+                }
+            );
+            if res.is_ok() {
+                return Tracked(points_to_opt.tracked_unwrap());
+            }
+        }
+    }
+
+    fn release(&self, Tracked(points_to): Tracked<cell::PointsTo<T>>)
+        requires self.wf(), points_to.id() == self.cell.id(), points_to.is_init()
+    {
+        atomic_with_ghost!(&self.atomic => store(false);
+            ghost g => {
+                g = Some(points_to);
+            }
+        );
+    }
+}
 
 fn main() {
-    // let mut serialized = bincode::serialize("abc").unwrap();
-    // println!("{}", serialized.len());
-    // println!("{}", hex::encode(serialized));
-
-    // serialized = bincode::serialize(&15).unwrap();
-    // println!("{}", serialized.len());
-    // println!("{}", hex::encode(serialized));
-
-    let hash_table = CuckooHashTable::new();
-
-    // Insert some entries
-    hash_table.insert("key1", "value1").unwrap();
-    hash_table.insert("key2", "value2").unwrap();
-    hash_table.insert("key3", "value3").unwrap();
-    hash_table.insert("key4", "value4").unwrap();
-    hash_table.insert("key5", "value5").unwrap();
-    hash_table.print_all();
-    hash_table.insert("key6", "value6").unwrap();
-    hash_table.insert("key7", "value7").unwrap();
-    hash_table.insert("key8", "value8").unwrap();
-    hash_table.insert("key9", "value9").unwrap();
-    hash_table.insert("key10", "value10").unwrap();
-
-    // println!("{}", hash_table.hash1(&"key1"));
-    // println!("{}", hash_table.hash2(&"key1"));
-
-    // println!("{}", hash_table.hash1(&"key2"));
-    // println!("{}", hash_table.hash2(&"key2"));
-
-    // println!("{}", hash_table.hash1(&"key3"));
-    // println!("{}", hash_table.hash2(&"key3"));
-
-    // Lookup
-    println!("Lookup key1: {:?}", hash_table.lookup(&"key1"));
-    println!("Lookup key2: {:?}", hash_table.lookup(&"key2"));
-    println!("Lookup key100: {:?}", hash_table.lookup(&"key100"));
-    hash_table.print_all();
-
-    // Remove
-    hash_table.remove(&"key2");
-    println!("Lookup key2 after removal: {:?}", hash_table.lookup(&"key2"));
-    println!("Lookup key1: {:?}", hash_table.lookup(&"key1"));
-    println!("Lookup key3: {:?}", hash_table.lookup(&"key3"));
-    hash_table.print_all();
-
-    hash_table.insert("key2", "value2new").unwrap();
-    println!("Lookup key2: {:?}", hash_table.lookup(&"key2"));
-
-    let hash_table = Arc::new(CuckooHashTable::<&str, &str>::new());
-
-    let entries: &'static [(&'static str, &'static str)] = &[
-        ("key1", "value1"),
-        ("key2", "value2"),
-        ("key3", "value3"),
-        ("key4", "value4"),
-        ("key5", "value5"),
-        ("key6", "value6"),
-        ("key7", "value7"),
-        ("key8", "value8"),
-        ("key9", "value9"),
-        ("key10", "value10"),
-        ("key11", "value11"),
-        ("key12", "value12"),
-        ("key13", "value13"),
-        ("key14", "value14"),
-    ];
-
-    let mut handles = vec![];
-    for (key, value) in entries {
-        let hash_table = Arc::clone(&hash_table);
-
-        let handle = thread::spawn(move || {
-            match hash_table.insert(key.clone(), value.clone()) {
-                Ok(()) => {
-                    println!("Inserted ({}, {})", key, value);
-                },
-                Err(e) => {
-                    println!("Failed to insert ({}, {}): {:?}", key, value, e);
-                }
-            }
-        });
-        handles.push(handle);
-    }
-
-    // Wait for all insert threads to complete
-    for handle in handles {
-        handle.join().unwrap();
-    }
-    hash_table.print_all();
+    let lock = Lock::new(10 as u64);
+    let mut cell_perm = lock.acquire();
+    print_u64(lock.cell.take(Tracked(cell_perm.borrow_mut())));
+    lock.cell.put(Tracked(cell_perm.borrow_mut()), 20);
+    print_u64(*lock.cell.borrow(Tracked(cell_perm.borrow())));
+    lock.release(cell_perm);
+}
 }
