@@ -3,12 +3,16 @@ use vstd::cell::*;
 use vstd::modes::*;
 use vstd::prelude::*;
 use vstd::{pervasive::*, *};
+use std::sync::Arc;
+use vstd::thread::*;
+#[allow(unused_imports)]
+use builtin::*;
+#[allow(unused_imports)]
+use builtin_macros::*;
 
 verus! {
 struct_with_invariants!{
     struct Lock<T> {
-        // The type placeholders are filled in by the
-        // struct_with_invariants! macro.
         pub atomic: AtomicBool<_, Option<cell::PointsTo<T>>, _>,
         pub cell: PCell<T>,
     }
@@ -65,11 +69,58 @@ impl<T> Lock<T> {
 }
 
 fn main() {
-    let lock = Lock::new(10 as u64);
-    let mut cell_perm = lock.acquire();
-    print_u64(lock.cell.take(Tracked(cell_perm.borrow_mut())));
-    lock.cell.put(Tracked(cell_perm.borrow_mut()), 20);
+    // let lock = Lock::new(10 as u64);
+    // let mut cell_perm = lock.acquire();
+    // print_u64(lock.cell.take(Tracked(cell_perm.borrow_mut())));
+    // lock.cell.put(Tracked(cell_perm.borrow_mut()), 20);
+    // print_u64(*lock.cell.borrow(Tracked(cell_perm.borrow())));
+    // lock.release(cell_perm);
+
+    let lock = Arc::new(Lock::new(0 as u64));
+    let mut handles = Vec::new();
+    let mut i = 0;
+    while i < 13
+        invariant
+            (*lock).wf(),
+    {
+        let l = Arc::clone(&lock);
+
+        let handle = spawn(move ||
+        {
+            let mut cell_perm = (*l).acquire();
+            let mut prev = (*l).cell.take(Tracked(cell_perm.borrow_mut()));
+            if prev == u64::MAX {
+                prev = u64::MAX - 1
+            }
+            (*l).cell.put(Tracked(cell_perm.borrow_mut()), prev + 1);
+            (*l).release(cell_perm);
+        });
+
+        i = i + 1;
+        handles.push(handle);
+    }
+
+    i = 0;
+    while i < 13 {
+        match handles.pop() {
+            Some(handle) => {
+                match handle.join() {
+                    Result::Ok(prev) => {
+                    },
+                    _ => {
+                        return;
+                    },
+                };
+            },
+            None => {
+                return;
+            },
+        }
+        i = i + 1;
+    }
+
+    let mut cell_perm = (*lock).acquire();
     print_u64(*lock.cell.borrow(Tracked(cell_perm.borrow())));
-    lock.release(cell_perm);
+    (*lock).release(cell_perm);
 }
 }
