@@ -117,85 +117,32 @@ tokenized_state_machine!{CuckooHashTable<T> {
         }
     }
 
-    // transition!{
-    //     insert_to_idx(i: nat) {
-    //         assert(0 <= i && i < pre.len());
-    //         self.inserted_bitmap |= 1 << i;
-    //     }
-    // }
+    #[inductive(check_out_perm)]
+    fn check_out_perm_inductive(pre: Self, post: Self, i: nat) {
+        assert(pre.storage.dom().contains(i));
+        assert(
+            pre.storage.index(i)@.pcell ===
+            pre.backing_cells.index(i as int)
+        );
 
-    // transition!{
-    //     remove_from_idx(i: nat) {
-    //         assert(0 <= i && i < pre.len());
-    //         self.inserted_bitmap &= ~(1 << i);
-    //     }
-    // }
+        assert forall |n|
+            pre.valid_storage_at_idx(n) implies post.valid_storage_at_idx(n)
+        by { }
+    }
 
+    #[inductive(return_perm)]
+    fn return_perm_inductive(pre: Self, post: Self, i: nat, perm: cell::PointsTo<T>) {
+        assert(post.storage.dom().contains(i));
+        assert(
+                post.storage.index(i)@.pcell ===
+                post.backing_cells.index(i as int)
+            );
+
+        assert forall |i|
+            pre.valid_storage_at_idx(i) implies post.valid_storage_at_idx(i)
+        by { }
+    }
 }}
-
-struct_with_invariants!{
-    struct Lock<T> {
-        pub atomic: AtomicBool<_, Option<cell::PointsTo<T>>, _>,
-        pub cell: PCell<T>,
-    }
-
-    spec fn wf(self) -> bool {
-        invariant on atomic with (cell)
-            is (v: bool, g: Option<cell::PointsTo<T>>)
-        {
-            match g {
-                None => v == true,
-                Some(points_to) => points_to.id() == cell.id() && points_to.is_init() && v == false,
-            }
-        }
-    }
-}
-
-// impl<T> Lock<T> {
-//     fn new(t: T) -> (lock: Self)
-//         ensures lock.wf()
-//     {
-//         let (cell, Tracked(cell_perm)) = PCell::new(t);
-//         let atomic = AtomicBool::new(Ghost(cell), false, Tracked(Some(cell_perm)));
-//         Lock { atomic, cell }
-//     }
-
-//     fn new(cell: PCell<T>, cell_perm: Tracked<cell::PointsTo<T>>) -> (lock: Self)
-//         ensures lock.wf()
-//     {
-//         let atomic = AtomicBool::new(Ghost(cell), false, Tracked(Some(cell_perm)));
-//         Lock { atomic, cell }
-//     }
-
-//     fn acquire(&self) -> (points_to: Tracked<cell::PointsTo<T>>)
-//         requires self.wf(),
-//         ensures points_to@.id() == self.cell.id(), points_to@.is_init()
-//     {
-//         loop
-//             invariant self.wf(),
-//         {
-//             let tracked mut points_to_opt = None;
-//             let res = atomic_with_ghost!(&self.atomic => compare_exchange(false, true);
-//                 ghost g => {
-//                     tracked_swap(&mut points_to_opt, &mut g);
-//                 }
-//             );
-//             if res.is_ok() {
-//                 return Tracked(points_to_opt.tracked_unwrap());
-//             }
-//         }
-//     }
-
-//     fn release(&self, Tracked(points_to): Tracked<cell::PointsTo<T>>)
-//         requires self.wf(), points_to.id() == self.cell.id(), points_to.is_init()
-//     {
-//         atomic_with_ghost!(&self.atomic => store(false);
-//             ghost g => {
-//                 g = Some(points_to);
-//             }
-//         );
-//     }
-// }
 
 #[derive(Clone, Debug)]
 pub struct KeyVal<K, V> {
@@ -238,57 +185,6 @@ struct_with_invariants!{
     }
 }
 
-// pub fn new_ht<K, V>(len: usize) -> Arc<HashTable<K, V>> {
-//     let mut backing_cells_vec = Vec::<Lock<KeyVal<K, V>>>::new();
-
-//     let tracked mut perms = Map::<nat, cell::PointsTo<KeyVal<K, V>>>::tracked_empty();
-//     while backing_cells_vec.len() < len
-//         invariant
-//             forall|j: nat|
-//                 #![trigger( perms.dom().contains(j) )]
-//                 #![trigger( backing_cells_vec@.index(j as int) )]
-//                 #![trigger( perms.index(j) )]
-//                 0 <= j && j < backing_cells_vec.len() as int ==> perms.dom().contains(j)
-//                     && backing_cells_vec@.index(j as int).cell.id() === perms.index(j)@.pcell
-//                     && perms.index(j)@.value.is_None(),
-//     {
-//         let ghost i = backing_cells_vec.len();
-//         let (cell, cell_perm) = PCell::empty();
-//         let lock = Lock<KeyVal<K, V>>::new(cell, cell_perm);
-//         backing_cells_vec.push(lock);
-//         proof {
-//             perms.tracked_insert(i as nat, cell_perm.get());
-//         }
-//         assert(perms.dom().contains(i as nat));
-//         assert(backing_cells_vec@.index(i as int).cell.id() === perms.index(i as nat)@.pcell);
-//         assert(perms.index(i as nat)@.value.is_None());
-//     }
-
-//     let ghost mut backing_cells_ids = Seq::<CellId>::new(
-//         backing_cells_vec@.len(),
-//         |i: int| backing_cells_vec@.index(i).cell.id(),
-//     );
-
-//     let tracked (
-//         Tracked(instance),
-//         Tracked(checked_out_bitmap_token),
-//         Tracked(inserted_bitmap_token),
-//     ) = CuckooHashTable::Instance::initialize(backing_cells_ids, perms);
-    
-//     let tracked_inst: Tracked<CuckooHashTable::Instance<KeyVal<K, V>>> = Tracked(instance.clone());
-//     let checked_out_bitmap_atomic = AtomicU64::new(Ghost(tracked_inst), 0, Tracked(checked_out_bitmap_token));
-//     let inserted_bitmap_atomic = AtomicU64::new(Ghost(tracked_inst), 0, Tracked(inserted_bitmap_token));
-
-//     let ht = HashTable::<K, V> {
-//         instance: Tracked(instance),
-//         buffer: backing_cells_vec,
-//         checked_out_bitmap_atomic: checked_out_bitmap_atomic,
-//         inserted_bitmap_atomic: inserted_bitmap_atomic,
-//     }
-
-//     Arc::new(ht)
-// }
-
 pub fn new_ht<K, V>(len: usize) -> Arc<HashTable<K, V>> {
     let mut backing_cells_vec = Vec::<PCell<KeyVal<K, V>>>::new();
 
@@ -304,7 +200,7 @@ pub fn new_ht<K, V>(len: usize) -> Arc<HashTable<K, V>> {
                     && perms.index(j)@.value.is_None(),
     {
         let ghost i = backing_cells_vec.len();
-        let (cell, cell_perm) = PCell::empty();
+        let (cell, cell_perm) = PCell<KeyVal<K, V>>::empty();
         backing_cells_vec.push(cell);
         proof {
             perms.tracked_insert(i as nat, cell_perm.get());
@@ -372,12 +268,14 @@ impl<K, V> HashTable<K, V> {
 
             let last_idx = *path.last().unwrap();
             let tracked cell_perm = atomic_with_ghost!(&self.checked_out_bitmap_atomic => load(); ghost checked_out_bitmap_token => {
-                self.instance.borrow().check_out_perm(&mut checked_out_bitmap_token);
+                self.instance.borrow().check_out_perm(last_idx, &mut checked_out_bitmap_token);
             });
 
-            // let mut cell_perm = self.buffer[last_idx].acquire();
             let entry = *self.buffer[last_idx].borrow(Tracked(cell_perm.borrow()));
             if entry.key.is_none() {
+                let tracked cell_perm = atomic_with_ghost!(&self.checked_out_bitmap_atomic => load(); ghost checked_out_bitmap_token => {
+                    self.instance.borrow().return_perm(last_idx, &mut checked_out_bitmap_token);
+                });
                 return Some(path);
             }
 
@@ -390,6 +288,10 @@ impl<K, V> HashTable<K, V> {
             let mut new_path = path;
             new_path.push(next_idx);
             queue.push(new_path);
+
+            let tracked cell_perm = atomic_with_ghost!(&self.checked_out_bitmap_atomic => load(); ghost checked_out_bitmap_token => {
+                self.instance.borrow().return_perm(last_idx, &mut checked_out_bitmap_token);
+            });
         }
 
         None
@@ -398,60 +300,6 @@ impl<K, V> HashTable<K, V> {
 
 
 fn main() {
-    // let lock = Lock::new(10 as u64);
-    // let mut cell_perm = lock.acquire();
-    // print_u64(lock.cell.take(Tracked(cell_perm.borrow_mut())));
-    // lock.cell.put(Tracked(cell_perm.borrow_mut()), 20);
-    // print_u64(*lock.cell.borrow(Tracked(cell_perm.borrow())));
-    // lock.release(cell_perm);
-
-    // let lock = Arc::new(Lock::new(0 as u64));
-    // let mut handles = Vec::new();
-    // let mut i = 0;
-    // while i < 13
-    //     invariant
-    //         (*lock).wf(),
-    // {
-    //     let l = Arc::clone(&lock);
-
-    //     let handle = spawn(move ||
-    //     {
-    //         let mut cell_perm = (*l).acquire();
-    //         let mut prev = (*l).cell.take(Tracked(cell_perm.borrow_mut()));
-    //         if prev == u64::MAX {
-    //             prev = u64::MAX - 1
-    //         }
-    //         (*l).cell.put(Tracked(cell_perm.borrow_mut()), prev + 1);
-    //         (*l).release(cell_perm);
-    //     });
-
-    //     i = i + 1;
-    //     handles.push(handle);
-    // }
-
-    // i = 0;
-    // while i < 13 {
-    //     match handles.pop() {
-    //         Some(handle) => {
-    //             match handle.join() {
-    //                 Result::Ok(prev) => {
-    //                 },
-    //                 _ => {
-    //                     return;
-    //                 },
-    //             };
-    //         },
-    //         None => {
-    //             return;
-    //         },
-    //     }
-    //     i = i + 1;
-    // }
-
-    // let mut cell_perm = (*lock).acquire();
-    // print_u64(*lock.cell.borrow(Tracked(cell_perm.borrow())));
-    // (*lock).release(cell_perm);
-
     let mut ht = new_ht<&str, &str>(32);
     let path = ht.insert_find_path("key1");
     println!("Path is {}", path);
