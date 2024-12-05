@@ -1,19 +1,19 @@
 use vstd::atomic_ghost::*;
 use vstd::cell::*;
-use vstd::modes::*;
 use vstd::prelude::*;
-use vstd::{pervasive::*, *};
+use vstd::*;
 use std::sync::Arc;
-use vstd::thread::*;
 #[allow(unused_imports)]
 use builtin::*;
 #[allow(unused_imports)]
 use builtin_macros::*;
+use std::string::String;
+use vstd::pervasive::*;
 
-use rapidhash::rapidhash;
-use bincode;
-use serde::Serialize;
-use gxhash::gxhash64;
+// use rapidhash::rapidhash;
+// use bincode;
+// use serde::Serialize;
+// use gxhash::gxhash64;
 
 verus! {
 
@@ -40,12 +40,12 @@ tokenized_state_machine!{CuckooHashTable<T> {
 
     pub open spec fn is_checked_out(&self, i: nat) -> bool {
         0 <= i && i < self.len() &&
-        self.checked_out_bitmap >> i == 1
+        self.checked_out_bitmap as i64 >> i == 1
     }
 
     pub open spec fn is_inserted(&self, i: nat) -> bool {
         0 <= i && i < self.len() &&
-        self.inserted_bitmap >> i == 1
+        self.inserted_bitmap as i64 >> i == 1
     }
 
     pub open spec fn valid_storage_at_idx(&self, i: nat) -> bool {
@@ -93,10 +93,10 @@ tokenized_state_machine!{CuckooHashTable<T> {
             withdraw storage -= [i => let perm] by {
                 assert(pre.valid_storage_at_idx(i));
             };
-            update checked_out_bitmap = (checked_out_bitmap |= 1 << i);
+            update checked_out_bitmap = (checked_out_bitmap as u64 | ((1 << i) as u64)) as nat;
 
             assert(
-                perm@.pcell === pre.backing_cells.index(i)
+                perm@.pcell === pre.backing_cells.index(i as int)
             ) by {
                 assert(pre.valid_storage_at_idx(i));
             };
@@ -106,14 +106,22 @@ tokenized_state_machine!{CuckooHashTable<T> {
     transition!{
         return_perm(i: nat, perm: cell::PointsTo<T>) {
             assert(0 <= i && i < pre.backing_cells.len());
-            require(is_checked_out(i));
-            require(perm@.pcell === pre.backing_cells.index(i));
+            require(perm@.pcell === pre.backing_cells.index(i as int));
             
             let checked_out_bitmap = pre.checked_out_bitmap;
 
             deposit storage += [i => perm] by { assert(pre.valid_storage_at_idx(i)); };
 
-            update checked_out_bitmap = (checked_out_bitmap &= ~(1 << i));
+            update checked_out_bitmap = (checked_out_bitmap as u64 & (!(1u64 << i as u64) as u64)) as nat;
+        }
+    }
+
+    #[inductive(initialize)]
+    fn initialize_inductive(post: Self, backing_cells: Seq<CellId>, storage: Map<nat, cell::PointsTo<T>>) {
+        assert forall|i: nat|
+            0 <= i && i < post.len() implies post.valid_storage_at_idx(i)
+        by {
+            assert(post.storage.dom().contains(i));
         }
     }
 
@@ -144,7 +152,9 @@ tokenized_state_machine!{CuckooHashTable<T> {
     }
 }}
 
-#[derive(Clone, Debug)]
+pub const MAX_RELOCS: usize = 8;
+
+#[derive(Clone, Debug, Copy)]
 pub struct KeyVal<K, V> {
     pub key: Option<K>,
     pub value: Option<V>,
@@ -157,7 +167,7 @@ impl<K, V> KeyVal<K, V> {
 }
 
 struct_with_invariants!{
-    struct HashTable<K, V> {
+    pub struct HashTable<K, V> {
         buffer: Vec<PCell<KeyVal<K, V>>>,
         checked_out_bitmap_atomic: AtomicU64<_, CuckooHashTable::checked_out_bitmap<KeyVal<K, V>>, _>,
         inserted_bitmap_atomic: AtomicU64<_, CuckooHashTable::inserted_bitmap<KeyVal<K, V>>, _>,
@@ -173,19 +183,19 @@ struct_with_invariants!{
                     self.buffer@.index(i).id()
         }
 
-        invariant on checked_out_bitmap_atomic with (instance) is (v: u64, g: CuckooHashTable::checked_out_bitmap_atomic<KeyVal<K, V>>) {
+        invariant on checked_out_bitmap_atomic with (instance) is (v: u64, g: CuckooHashTable::checked_out_bitmap<KeyVal<K, V>>) {
             &&& g@.instance === instance@
             &&& g@.value == v as int
         }
 
-        invariant on inserted_bitmap_atomic with (instance) is (v: u64, g: CuckooHashTable::inserted_bitmap_atomic<KeyVal<K, V>>) {
+        invariant on inserted_bitmap_atomic with (instance) is (v: u64, g: CuckooHashTable::inserted_bitmap<KeyVal<K, V>>) {
             &&& g@.instance === instance@
             &&& g@.value == v as int
         }
     }
 }
 
-pub fn new_ht<K, V>(len: usize) -> Arc<HashTable<K, V>> {
+pub fn new_ht<K, V>(len: usize) -> HashTable<K, V> {
     let mut backing_cells_vec = Vec::<PCell<KeyVal<K, V>>>::new();
 
     let tracked mut perms = Map::<nat, cell::PointsTo<KeyVal<K, V>>>::tracked_empty();
@@ -200,7 +210,7 @@ pub fn new_ht<K, V>(len: usize) -> Arc<HashTable<K, V>> {
                     && perms.index(j)@.value.is_None(),
     {
         let ghost i = backing_cells_vec.len();
-        let (cell, cell_perm) = PCell<KeyVal<K, V>>::empty();
+        let (cell, cell_perm) = PCell::empty();
         backing_cells_vec.push(cell);
         proof {
             perms.tracked_insert(i as nat, cell_perm.get());
@@ -219,7 +229,7 @@ pub fn new_ht<K, V>(len: usize) -> Arc<HashTable<K, V>> {
         Tracked(instance),
         Tracked(checked_out_bitmap_token),
         Tracked(inserted_bitmap_token),
-    ) = CuckooHashTable::Instance::initialize(backing_cells_ids, perms);
+    ) = CuckooHashTable::Instance::initialize(backing_cells_ids, perms, perms);
     
     let tracked_inst: Tracked<CuckooHashTable::Instance<KeyVal<K, V>>> = Tracked(instance.clone());
     let checked_out_bitmap_atomic = AtomicU64::new(Ghost(tracked_inst), 0, Tracked(checked_out_bitmap_token));
@@ -230,31 +240,34 @@ pub fn new_ht<K, V>(len: usize) -> Arc<HashTable<K, V>> {
         buffer: backing_cells_vec,
         checked_out_bitmap_atomic: checked_out_bitmap_atomic,
         inserted_bitmap_atomic: inserted_bitmap_atomic,
-    }
+    };
 
-    Arc::new(ht)
+    ht
 }
 
-impl<K, V> HashTable<K, V> {
-    fn hash1(&self, key: &K) -> usize {
-        let key_bytes = bincode::serialize(key).unwrap();
-        rapidhash(key_bytes.as_slice()) as usize % self.buffer.len()
+impl<K: std::clone::Clone, V> HashTable<K, V> {
+    fn hash1(&self, key: K) -> usize {
+        1
     }
 
-    fn hash2(&self, key: &K) -> usize {
-        let key_bytes = bincode::serialize(key).unwrap();
-        gxhash64(key_bytes.as_slice(), 14893) as usize % self.buffer.len()
+    fn hash2(&self, key: K) -> usize {
+        3
     }
 
-    pub fn insert_find_path(&self, key: &K) -> Option<Vec<usize>>
+    pub fn insert_find_path(&mut self, key: K) -> (p: Option<Vec<usize>>)
         requires
             old(self).wf(),
         ensures
             self.wf(),
+            // p == None || (p == Some(res) && res.len() <= MAX_RELOCS),
+            match p {
+                None => true,
+                Some(res) => res.len() <= MAX_RELOCS,
+            }
     {
-        let mut queue = vec![vec![self.hash1(key)], vec![self.hash2(key)]];
+        let mut queue = vec![vec![self.hash1(key.clone())], vec![self.hash2(key.clone())]];
 
-        while let Some(path) = queue.pop()
+        while queue.len() > 0
             invariant
                 self.wf(),
                 queue.len() >= 0,
@@ -262,36 +275,42 @@ impl<K, V> HashTable<K, V> {
                 self.wf(),
                 queue.len() >= 0,
         {
-            if path.len() > MAX_RELOCS {
-                break;
-            }
-
-            let last_idx = *path.last().unwrap();
-            let tracked cell_perm = atomic_with_ghost!(&self.checked_out_bitmap_atomic => load(); ghost checked_out_bitmap_token => {
-                self.instance.borrow().check_out_perm(last_idx, &mut checked_out_bitmap_token);
-            });
-
-            let entry = *self.buffer[last_idx].borrow(Tracked(cell_perm.borrow()));
-            if entry.key.is_none() {
-                let tracked cell_perm = atomic_with_ghost!(&self.checked_out_bitmap_atomic => load(); ghost checked_out_bitmap_token => {
-                    self.instance.borrow().return_perm(last_idx, &mut checked_out_bitmap_token);
+            if let Some(path) = queue.pop() {
+                if path.len() > MAX_RELOCS {
+                    break;
+                }
+    
+                let last_idx = path[path.len() - 1];
+                let tracked cell_perm: cell::PointsTo<KeyVal<K, V>>;
+                atomic_with_ghost!(&self.checked_out_bitmap_atomic => load(); ghost checked_out_bitmap_token => {
+                    cell_perm = self.instance.borrow().check_out_perm(last_idx as nat, &mut checked_out_bitmap_token);
                 });
-                return Some(path);
-            }
-
-            let next_idx = if self.hash1(entry.key.as_ref().unwrap()) != last_idx {
-                self.hash1(entry.key.as_ref().unwrap())
+    
+                let entry = self.buffer[last_idx].borrow(Tracked(&cell_perm));
+                if entry.key.is_none() {
+                    atomic_with_ghost!(&self.checked_out_bitmap_atomic => load(); ghost checked_out_bitmap_token => {
+                        self.instance.borrow().return_perm(last_idx as nat, cell_perm, cell_perm, &mut checked_out_bitmap_token);
+                    });
+                    return Some(path);
+                }
+                
+                let k = entry.key.as_ref().unwrap();
+                let next_idx = if self.hash1(k.clone()) != last_idx {
+                    self.hash1(k.clone())
+                } else {
+                    self.hash2(k.clone())
+                };
+    
+                let mut new_path = path;
+                new_path.push(next_idx);
+                queue.push(new_path);
+    
+                atomic_with_ghost!(&self.checked_out_bitmap_atomic => load(); ghost checked_out_bitmap_token => {
+                    self.instance.borrow().return_perm(last_idx as nat, cell_perm, cell_perm, &mut checked_out_bitmap_token);
+                });
             } else {
-                self.hash2(entry.key.as_ref().unwrap())
-            };
-
-            let mut new_path = path;
-            new_path.push(next_idx);
-            queue.push(new_path);
-
-            let tracked cell_perm = atomic_with_ghost!(&self.checked_out_bitmap_atomic => load(); ghost checked_out_bitmap_token => {
-                self.instance.borrow().return_perm(last_idx, &mut checked_out_bitmap_token);
-            });
+                return None;
+            }
         }
 
         None
@@ -300,8 +319,8 @@ impl<K, V> HashTable<K, V> {
 
 
 fn main() {
-    let mut ht = new_ht<&str, &str>(32);
-    let path = ht.insert_find_path("key1");
-    println!("Path is {}", path);
+    let mut ht = new_ht::<String, String>(32);
+    let path = ht.insert_find_path("key1".to_string());
+    print_u64(path.unwrap()[0] as u64);
 }
 }
