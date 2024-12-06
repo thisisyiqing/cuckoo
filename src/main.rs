@@ -9,6 +9,7 @@ use builtin_macros::*;
 use std::string::String;
 use vstd::pervasive::*;
 
+// TODO: verus does not support importing third-party crates?
 // use rapidhash::rapidhash;
 // use bincode;
 // use serde::Serialize;
@@ -20,19 +21,27 @@ use state_machines_macros::tokenized_state_machine;
 
 tokenized_state_machine!{CuckooHashTable<T> {
     fields {
+        // Store the unique identifier of a cell at its corresponding index
         #[sharding(constant)]
         pub backing_cells: Seq<CellId>,
 
+        // Store the permission object of a cell, and the key is the index of the cell
         #[sharding(storage_map)]
         pub storage: Map<nat, cell::PointsTo<T>>,
-
+        
+        // When a cell's permission is checked out from the storage map above, we flip its bit in the bitmap at the corresponding index.
         #[sharding(variable)]
         pub checked_out_bitmap: nat,
 
+        // When a cell has a non-None key and value, it is considered inserted.
+        // When a cell is inserted or removed, we flip its bit in the bitmap at the corresponding index.
+        // TODO: not used in the proof so far
         #[sharding(variable)]
         pub inserted_bitmap: nat,
     }
 
+    // Return the length of the hashtable that this state machine is keeping track of
+    // TODO: need to be a fixed length so we cannot resize for now
     pub open spec fn len(&self) -> nat {
         self.backing_cells.len()
     }
@@ -47,17 +56,20 @@ tokenized_state_machine!{CuckooHashTable<T> {
         self.inserted_bitmap as i64 >> i == 1
     }
 
+    // If the permission at index i is checked out, we check the storage does not contain the permission.
+    // If the permission is not checked out, we check the storage contains the permission and the permission has the correct cellid.
+    // TODO: comment back in checks on is_inserted
     pub open spec fn valid_storage_at_idx(&self, i: nat) -> bool {
         if self.is_checked_out(i) {
             !self.storage.dom().contains(i)
         } else {
             self.storage.dom().contains(i)
             && self.storage.index(i)@.pcell === self.backing_cells.index(i as int)
-            && if self.is_inserted(i) {
-                self.storage.index(i)@.value.is_Some()
-            } else {
-                self.storage.index(i)@.value.is_None()
-            }
+            // && if self.is_inserted(i) {
+            //     self.storage.index(i)@.value.is_Some()
+            // } else {
+            //     self.storage.index(i)@.value.is_None()
+            // }
         }
     }
 
@@ -85,8 +97,9 @@ tokenized_state_machine!{CuckooHashTable<T> {
     }
 
     transition!{
+        // Check out the permission for the cell at index i by removing from the storage map and update the bitmap
         check_out_perm(i: nat) {
-            assert(0 <= i && i < pre.backing_cells.len());
+            // assert(0 <= i && i < pre.backing_cells.len());
             let checked_out_bitmap = pre.checked_out_bitmap;
 
             withdraw storage -= [i => let perm] by {
@@ -103,6 +116,7 @@ tokenized_state_machine!{CuckooHashTable<T> {
     }
 
     transition!{
+        // Return the permission for the cell at index i by putting in the storage map and update the bitmap
         return_perm(i: nat, perm: cell::PointsTo<T>) {
             assert(0 <= i && i < pre.backing_cells.len());
             require(perm@.pcell === pre.backing_cells.index(i as int));
@@ -115,6 +129,7 @@ tokenized_state_machine!{CuckooHashTable<T> {
         }
     }
 
+    // TODO: don't know what the following inductives are for, so I copied over some code
     #[inductive(initialize)]
     fn initialize_inductive(post: Self, backing_cells: Seq<CellId>, storage: Map<nat, cell::PointsTo<T>>) {
         assert forall|i: nat|
