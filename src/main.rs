@@ -186,7 +186,7 @@ struct_with_invariants!{
         buffer: Vec<PCell<KeyVal<K, V>>>,
         // The atomic bitmaps shared between threads
         checked_out_bitmap_atomic: AtomicU64<_, CuckooHashTable::checked_out_bitmap<KeyVal<K, V>>, _>,
-        inserted_bitmap_atomic: AtomicU64<_, CuckooHashTable::inserted_bitmap<KeyVal<K, V>>, _>,
+        // inserted_bitmap_atomic: AtomicU64<_, CuckooHashTable::inserted_bitmap<KeyVal<K, V>>, _>,
 
         // The instance of the state machine
         instance: Tracked<CuckooHashTable::Instance<KeyVal<K, V>>>,
@@ -255,13 +255,13 @@ pub fn new_ht<K, V>(len: usize) -> HashTable<K, V> {
     // Use the return value of the initialize function to construct the instance and the bitmaps
     let tracked_inst: Tracked<CuckooHashTable::Instance<KeyVal<K, V>>> = Tracked(instance.clone());
     let checked_out_bitmap_atomic = AtomicU64::new(Ghost(tracked_inst), 0, Tracked(checked_out_bitmap_token));
-    let inserted_bitmap_atomic = AtomicU64::new(Ghost(tracked_inst), 0, Tracked(inserted_bitmap_token));
+    // let inserted_bitmap_atomic = AtomicU64::new(Ghost(tracked_inst), 0, Tracked(inserted_bitmap_token));
 
     let ht = HashTable::<K, V> {
         instance: Tracked(instance),
         buffer: backing_cells_vec,
         checked_out_bitmap_atomic: checked_out_bitmap_atomic,
-        inserted_bitmap_atomic: inserted_bitmap_atomic,
+        // inserted_bitmap_atomic: inserted_bitmap_atomic,
     };
 
     ht
