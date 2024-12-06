@@ -92,7 +92,7 @@ tokenized_state_machine!{CuckooHashTable<T> {
             withdraw storage -= [i => let perm] by {
                 assert(pre.valid_storage_at_idx(i));
             };
-            update checked_out_bitmap = (checked_out_bitmap as u64 | ((1 << i) as u64)) as nat;
+            update checked_out_bitmap = (checked_out_bitmap as u64 + ((1 << i) as u64)) as nat;
 
             assert(
                 perm@.pcell === pre.backing_cells.index(i as int)
@@ -282,13 +282,13 @@ impl<K: std::clone::Clone, V> HashTable<K, V> {
                 let last_idx = path[path.len() - 1];
                 let tracked cell_perm: cell::PointsTo<KeyVal<K, V>>;
 
-                atomic_with_ghost!(&self.checked_out_bitmap_atomic => store((&self.checked_out_bitmap_atomic.load() | ((1 << last_idx) as u64)) as u64); ghost checked_out_bitmap_token => {
+                atomic_with_ghost!(&self.checked_out_bitmap_atomic => fetch_or(((1 << last_idx) as u64)); ghost checked_out_bitmap_token => {
                     cell_perm = self.instance.borrow().check_out_perm(last_idx as nat, &mut checked_out_bitmap_token);
                 });
     
                 let entry = self.buffer[last_idx].borrow(Tracked(&cell_perm));
                 if entry.key.is_none() {
-                    atomic_with_ghost!(&self.checked_out_bitmap_atomic => store((&self.checked_out_bitmap_atomic.load() & (!(1u64 << last_idx as u64) as u64))); ghost checked_out_bitmap_token => {
+                    atomic_with_ghost!(&self.checked_out_bitmap_atomic => fetch_and((!(1u64 << last_idx as u64) as u64)); ghost checked_out_bitmap_token => {
                         self.instance.borrow().return_perm(last_idx as nat, cell_perm, cell_perm, &mut checked_out_bitmap_token);
                     });
                     return Some(path);
@@ -305,7 +305,7 @@ impl<K: std::clone::Clone, V> HashTable<K, V> {
                 new_path.push(next_idx);
                 queue.push(new_path);
                 
-                atomic_with_ghost!(&self.checked_out_bitmap_atomic => store((&self.checked_out_bitmap_atomic.load() & (!(1u64 << last_idx as u64) as u64))); ghost checked_out_bitmap_token => {
+                atomic_with_ghost!(&self.checked_out_bitmap_atomic => fetch_and((!(1u64 << last_idx as u64) as u64)); ghost checked_out_bitmap_token => {
                     self.instance.borrow().return_perm(last_idx as nat, cell_perm, cell_perm, &mut checked_out_bitmap_token);
                 });
             } else {
