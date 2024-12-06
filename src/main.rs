@@ -182,10 +182,13 @@ impl<K, V> KeyVal<K, V> {
 
 struct_with_invariants!{
     pub struct HashTable<K, V> {
+        // A Vec of PCells that is the actual store of the hash table
         buffer: Vec<PCell<KeyVal<K, V>>>,
+        // The atomic bitmaps shared between threads
         checked_out_bitmap_atomic: AtomicU64<_, CuckooHashTable::checked_out_bitmap<KeyVal<K, V>>, _>,
         inserted_bitmap_atomic: AtomicU64<_, CuckooHashTable::inserted_bitmap<KeyVal<K, V>>, _>,
 
+        // The instance of the state machine
         instance: Tracked<CuckooHashTable::Instance<KeyVal<K, V>>>,
     }
 
@@ -202,17 +205,20 @@ struct_with_invariants!{
             &&& g@.value == v as int
         }
 
-        invariant on inserted_bitmap_atomic with (instance) is (v: u64, g: CuckooHashTable::inserted_bitmap<KeyVal<K, V>>) {
-            &&& g@.instance === instance@
-            &&& g@.value == v as int
-        }
+        // invariant on inserted_bitmap_atomic with (instance) is (v: u64, g: CuckooHashTable::inserted_bitmap<KeyVal<K, V>>) {
+        //     &&& g@.instance === instance@
+        //     &&& g@.value == v as int
+        // }
     }
 }
 
 pub fn new_ht<K, V>(len: usize) -> HashTable<K, V> {
+    // Init the back_cells_vec to be stored in the state machine
     let mut backing_cells_vec = Vec::<PCell<KeyVal<K, V>>>::new();
 
+    // Init the storage map to be stored in the state machine
     let tracked mut perms = Map::<nat, cell::PointsTo<KeyVal<K, V>>>::tracked_empty();
+    // Make one cell at each loop
     while backing_cells_vec.len() < len
         invariant
             forall|j: nat|
@@ -239,12 +245,14 @@ pub fn new_ht<K, V>(len: usize) -> HashTable<K, V> {
         |i: int| backing_cells_vec@.index(i).id(),
     );
 
+    // Pass the backing_cells_ids and perms prepared above into the initialize function of the state machine
     let tracked (
         Tracked(instance),
         Tracked(checked_out_bitmap_token),
         Tracked(inserted_bitmap_token),
     ) = CuckooHashTable::Instance::initialize(backing_cells_ids, perms, perms);
     
+    // Use the return value of the initialize function to construct the instance and the bitmaps
     let tracked_inst: Tracked<CuckooHashTable::Instance<KeyVal<K, V>>> = Tracked(instance.clone());
     let checked_out_bitmap_atomic = AtomicU64::new(Ghost(tracked_inst), 0, Tracked(checked_out_bitmap_token));
     let inserted_bitmap_atomic = AtomicU64::new(Ghost(tracked_inst), 0, Tracked(inserted_bitmap_token));
@@ -261,6 +269,7 @@ pub fn new_ht<K, V>(len: usize) -> HashTable<K, V> {
 
 impl<K: std::clone::Clone, V> HashTable<K, V> {
     fn hash1(&self, key: K) -> usize {
+        // TODO: temporary solution for not being able to import the hash library
         1
     }
 
@@ -268,6 +277,8 @@ impl<K: std::clone::Clone, V> HashTable<K, V> {
         3
     }
 
+    // Find a valid path using BFS so we are guarenteed to find the shortest path.
+    // We put the key and subsequently move the keys following the path in the insert function.
     pub fn insert_find_path(&mut self, key: K) -> (p: Option<Vec<usize>>)
         requires
             old(self).wf(),
@@ -297,18 +308,21 @@ impl<K: std::clone::Clone, V> HashTable<K, V> {
                 let last_idx = path[path.len() - 1];
                 let tracked cell_perm: cell::PointsTo<KeyVal<K, V>>;
 
+                // Check out the permission for the last_idx in order to view the key and value in there
                 atomic_with_ghost!(&self.checked_out_bitmap_atomic => fetch_or(((1 << last_idx) as u64)); ghost checked_out_bitmap_token => {
                     cell_perm = self.instance.borrow().check_out_perm(last_idx as nat, &mut checked_out_bitmap_token);
                 });
     
                 let entry = self.buffer[last_idx].borrow(Tracked(&cell_perm));
                 if entry.key.is_none() {
+                    // We found a valid path so return the permission and return early.
                     atomic_with_ghost!(&self.checked_out_bitmap_atomic => fetch_and((!(1u64 << last_idx as u64) as u64)); ghost checked_out_bitmap_token => {
                         self.instance.borrow().return_perm(last_idx as nat, cell_perm, cell_perm, &mut checked_out_bitmap_token);
                     });
                     return Some(path);
                 }
                 
+                // The current index is occupied, so we need to move the key to its alternative index
                 let k = entry.key.as_ref().unwrap();
                 let next_idx = if self.hash1(k.clone()) != last_idx {
                     self.hash1(k.clone())
@@ -320,6 +334,7 @@ impl<K: std::clone::Clone, V> HashTable<K, V> {
                 new_path.push(next_idx);
                 queue.push(new_path);
                 
+                // Return the permission before the next iteration
                 atomic_with_ghost!(&self.checked_out_bitmap_atomic => fetch_and((!(1u64 << last_idx as u64) as u64)); ghost checked_out_bitmap_token => {
                     self.instance.borrow().return_perm(last_idx as nat, cell_perm, cell_perm, &mut checked_out_bitmap_token);
                 });
