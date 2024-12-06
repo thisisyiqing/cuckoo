@@ -2,7 +2,6 @@ use vstd::atomic_ghost::*;
 use vstd::cell::*;
 use vstd::prelude::*;
 use vstd::*;
-use std::sync::Arc;
 #[allow(unused_imports)]
 use builtin::*;
 #[allow(unused_imports)]
@@ -282,13 +281,14 @@ impl<K: std::clone::Clone, V> HashTable<K, V> {
     
                 let last_idx = path[path.len() - 1];
                 let tracked cell_perm: cell::PointsTo<KeyVal<K, V>>;
-                atomic_with_ghost!(&self.checked_out_bitmap_atomic => load(); ghost checked_out_bitmap_token => {
+
+                atomic_with_ghost!(&self.checked_out_bitmap_atomic => store((&self.checked_out_bitmap_atomic.load() | ((1 << last_idx) as u64)) as u64); ghost checked_out_bitmap_token => {
                     cell_perm = self.instance.borrow().check_out_perm(last_idx as nat, &mut checked_out_bitmap_token);
                 });
     
                 let entry = self.buffer[last_idx].borrow(Tracked(&cell_perm));
                 if entry.key.is_none() {
-                    atomic_with_ghost!(&self.checked_out_bitmap_atomic => load(); ghost checked_out_bitmap_token => {
+                    atomic_with_ghost!(&self.checked_out_bitmap_atomic => store((&self.checked_out_bitmap_atomic.load() & (!(1u64 << last_idx as u64) as u64))); ghost checked_out_bitmap_token => {
                         self.instance.borrow().return_perm(last_idx as nat, cell_perm, cell_perm, &mut checked_out_bitmap_token);
                     });
                     return Some(path);
@@ -304,8 +304,8 @@ impl<K: std::clone::Clone, V> HashTable<K, V> {
                 let mut new_path = path;
                 new_path.push(next_idx);
                 queue.push(new_path);
-    
-                atomic_with_ghost!(&self.checked_out_bitmap_atomic => load(); ghost checked_out_bitmap_token => {
+                
+                atomic_with_ghost!(&self.checked_out_bitmap_atomic => store((&self.checked_out_bitmap_atomic.load() & (!(1u64 << last_idx as u64) as u64))); ghost checked_out_bitmap_token => {
                     self.instance.borrow().return_perm(last_idx as nat, cell_perm, cell_perm, &mut checked_out_bitmap_token);
                 });
             } else {
