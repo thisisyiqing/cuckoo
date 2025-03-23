@@ -1,8 +1,5 @@
-use bincode;
-use gxhash::gxhash64;
-use rapidhash::rapidhash;
-use serde::Serialize;
 use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
@@ -30,7 +27,7 @@ pub struct CuckooHashTable<K, V> {
 
 impl<K, V> CuckooHashTable<K, V>
 where
-    K: Serialize + Eq + Clone + Debug,
+    K: Hash + Eq + Clone + Debug,
     V: Clone + Debug,
 {
     pub fn new() -> Self {
@@ -41,13 +38,15 @@ where
     }
 
     fn hash1(&self, key: &K) -> usize {
-        let key_bytes = bincode::serialize(key).unwrap();
-        rapidhash(key_bytes.as_slice()) as usize % *self.size.lock().unwrap()
+        let mut hasher = rapidhash::RapidHasher::default_const();
+        key.hash(&mut hasher);
+        (hasher.finish() % *self.size.lock().unwrap() as u64) as usize
     }
 
     fn hash2(&self, key: &K) -> usize {
-        let key_bytes = bincode::serialize(key).unwrap();
-        gxhash64(key_bytes.as_slice(), 14893) as usize % *self.size.lock().unwrap()
+        let mut hasher = gxhash::GxHasher::with_seed(14893);
+        key.hash(&mut hasher);
+        (hasher.finish() % *self.size.lock().unwrap() as u64) as usize
     }
 
     fn insert_find_path(&self, key: &K) -> Option<Vec<usize>> {
