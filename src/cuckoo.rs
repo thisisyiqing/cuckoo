@@ -1,9 +1,9 @@
-use rapidhash::rapidhash;
 use bincode;
-use serde::Serialize;
 use gxhash::gxhash64;
-use std::sync::{Arc, Mutex};
+use rapidhash::rapidhash;
+use serde::Serialize;
 use std::fmt::Debug;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
 pub struct KeyVal<K, V> {
@@ -13,7 +13,10 @@ pub struct KeyVal<K, V> {
 
 impl<K, V> KeyVal<K, V> {
     pub fn new() -> Self {
-        Self { key: None, value: None }
+        Self {
+            key: None,
+            value: None,
+        }
     }
 }
 
@@ -80,7 +83,7 @@ where
         loop {
             if let Some(path) = self.insert_find_path(&key) {
                 println!("{:?} {:?}", key, path);
-                
+
                 if self.try_insert_along_path(&path, key.clone(), value.clone()) {
                     return Ok(());
                 }
@@ -127,7 +130,10 @@ where
     }
 
     fn resize(&self) -> Result<(), String> {
-        let mut size = self.size.try_lock().map_err(|_| "Another resize in progress, aborting...".to_string())?;
+        let mut size = self
+            .size
+            .try_lock()
+            .map_err(|_| "Another resize in progress, aborting...".to_string())?;
         let old_size = *size;
         let new_size = old_size * 2;
 
@@ -135,7 +141,8 @@ where
             .map(|i| self.arr[i].lock().unwrap().clone())
             .collect();
 
-        let new_arr: Vec<Mutex<KeyVal<K, V>>> = (0..new_size).map(|_| Mutex::new(KeyVal::new())).collect();
+        let new_arr: Vec<Mutex<KeyVal<K, V>>> =
+            (0..new_size).map(|_| Mutex::new(KeyVal::new())).collect();
 
         unsafe {
             let cloned = &mut Arc::clone(&self.arr);
@@ -194,9 +201,7 @@ where
     }
 
     pub fn print_all(&self) {
-        let locked_entries: Vec<_> = self.arr.iter()
-            .map(|entry| entry.lock().unwrap())
-            .collect();
+        let locked_entries: Vec<_> = self.arr.iter().map(|entry| entry.lock().unwrap()).collect();
 
         for (i, entry) in locked_entries.iter().enumerate() {
             if let Some(ref k) = entry.key {
@@ -205,4 +210,3 @@ where
         }
     }
 }
-

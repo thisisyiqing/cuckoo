@@ -45,7 +45,10 @@ fn main() {
 
     // Remove
     hash_table.remove(&"key2");
-    println!("Lookup key2 after removal: {:?}", hash_table.lookup(&"key2"));
+    println!(
+        "Lookup key2 after removal: {:?}",
+        hash_table.lookup(&"key2")
+    );
     println!("Lookup key1: {:?}", hash_table.lookup(&"key1"));
     println!("Lookup key3: {:?}", hash_table.lookup(&"key3"));
     hash_table.print_all();
@@ -76,16 +79,16 @@ fn main() {
     for (key, value) in entries {
         let hash_table = Arc::clone(&hash_table);
 
-        let handle = thread::spawn(move || {
-            match hash_table.insert(key.clone(), value.clone()) {
+        let handle = thread::spawn(
+            move || match hash_table.insert(key.clone(), value.clone()) {
                 Ok(()) => {
                     println!("Inserted ({}, {})", key, value);
-                },
+                }
                 Err(e) => {
                     println!("Failed to insert ({}, {}): {:?}", key, value, e);
                 }
-            }
-        });
+            },
+        );
         handles.push(handle);
     }
 
