@@ -1,11 +1,11 @@
 #![feature(get_mut_unchecked)]
 #![warn(clippy::all)]
-mod cuckoo;
 use cuckoo::CuckooHashTable;
 use std::sync::Arc;
 use std::thread;
 
-fn main() {
+#[test]
+fn test1() {
     // let mut serialized = bincode::serialize("abc").unwrap();
     // println!("{}", serialized.len());
     // println!("{}", hex::encode(serialized));
