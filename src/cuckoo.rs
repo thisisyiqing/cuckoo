@@ -41,14 +41,10 @@ where
         (hasher.finish() % *self.size.lock().unwrap() as u64) as usize
     }
 
-    fn insert_find_path(&self, key: &K) -> Option<Vec<usize>> {
-        let mut queue = vec![vec![self.hash1(key)], vec![self.hash2(key)]];
+    fn get_path_that_clears_index(&self, index: usize) -> Option<Vec<usize>> {
+        let mut path = vec![index];
 
-        while let Some(path) = queue.pop() {
-            if path.len() > MAX_RELOCS {
-                break;
-            }
-
+        for _ in 0..MAX_RELOCS {
             let last_idx = *path.last().unwrap();
             let entry = self.arr[last_idx].lock().unwrap();
 
@@ -62,11 +58,18 @@ where
                 self.hash2(&entry.key)
             };
 
-            let mut new_path = path;
-            new_path.push(next_idx);
-            queue.push(new_path);
+            path.push(next_idx);
         }
+        None
+    }
 
+    fn insert_find_path(&self, key: &K) -> Option<Vec<usize>> {
+        if let Some(path) = self.get_path_that_clears_index(self.hash1(key)) {
+            return Some(path);
+        }
+        if let Some(path) = self.get_path_that_clears_index(self.hash2(key)) {
+            return Some(path);
+        }
         None
     }
 
