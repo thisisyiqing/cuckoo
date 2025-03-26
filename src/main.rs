@@ -22,7 +22,7 @@ fn main() {
     hash_table.insert("key3", "value3").unwrap();
     hash_table.insert("key4", "value4").unwrap();
     hash_table.insert("key5", "value5").unwrap();
-    hash_table.print_all();
+    println!("{hash_table:?}");
     hash_table.insert("key6", "value6").unwrap();
     hash_table.insert("key7", "value7").unwrap();
     hash_table.insert("key8", "value8").unwrap();
@@ -42,7 +42,7 @@ fn main() {
     println!("Lookup key1: {:?}", hash_table.lookup(&"key1"));
     println!("Lookup key2: {:?}", hash_table.lookup(&"key2"));
     println!("Lookup key100: {:?}", hash_table.lookup(&"key100"));
-    hash_table.print_all();
+    println!("{hash_table:?}");
 
     // Remove
     hash_table.remove(&"key2");
@@ -52,7 +52,7 @@ fn main() {
     );
     println!("Lookup key1: {:?}", hash_table.lookup(&"key1"));
     println!("Lookup key3: {:?}", hash_table.lookup(&"key3"));
-    hash_table.print_all();
+    println!("{hash_table:?}");
 
     hash_table.insert("key2", "value2new").unwrap();
     println!("Lookup key2: {:?}", hash_table.lookup(&"key2"));
@@ -95,5 +95,5 @@ fn main() {
     for handle in handles {
         handle.join().unwrap();
     }
-    hash_table.print_all();
+    println!("{hash_table:?}");
 }
