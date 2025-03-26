@@ -1,4 +1,5 @@
 #![feature(get_mut_unchecked)]
+#![warn(clippy::all)]
 mod cuckoo;
 use cuckoo::CuckooHashTable;
 use std::sync::Arc;
@@ -79,16 +80,14 @@ fn main() {
     for (key, value) in entries {
         let hash_table = Arc::clone(&hash_table);
 
-        let handle = thread::spawn(
-            move || match hash_table.insert(key.clone(), value.clone()) {
-                Ok(()) => {
-                    println!("Inserted ({}, {})", key, value);
-                }
-                Err(e) => {
-                    println!("Failed to insert ({}, {}): {:?}", key, value, e);
-                }
-            },
-        );
+        let handle = thread::spawn(move || match hash_table.insert(key, value) {
+            Ok(()) => {
+                println!("Inserted ({}, {})", key, value);
+            }
+            Err(e) => {
+                println!("Failed to insert ({}, {}): {:?}", key, value, e);
+            }
+        });
         handles.push(handle);
     }
 
