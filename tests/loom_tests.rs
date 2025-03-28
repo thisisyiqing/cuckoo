@@ -1,4 +1,5 @@
 #![warn(clippy::all)]
+#![cfg(loom)]
 use cuckoo::{CuckooHashTable, KeyVal};
 use loom::sync::Arc;
 use loom::thread;
@@ -7,7 +8,7 @@ use rand::{Rng, SeedableRng};
 #[test]
 fn test1() {
     // Test 10 times with different random entries
-    for seed in 0..10 {
+    for seed in 0..20 {
         loom::model(move || test1_body(seed));
     }
 }

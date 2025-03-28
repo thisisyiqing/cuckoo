@@ -43,9 +43,14 @@ where
     }
 
     fn try_direct_insert(&self, new_entry: &KeyVal<K, V>) -> bool {
-        // The 2 buckets this new entry could go.
+        // The 2 buckets into which this new entry could go.
         let mut bucket1 = self.arr[self.hash1(&new_entry.key)].lock().unwrap();
-        let mut bucket2 = self.arr[self.hash2(&new_entry.key)].lock().unwrap();
+
+        let mut bucket2 = if self.hash1(&new_entry.key) != self.hash2(&new_entry.key) {
+            Some(self.arr[self.hash2(&new_entry.key)].lock().unwrap())
+        } else {
+            None
+        };
 
         // If this key is already in the table,
         // replace it
@@ -55,10 +60,12 @@ where
                 return true;
             }
         }
-        if let Some(entry2) = bucket2.as_ref() {
-            if entry2.key == new_entry.key {
-                *bucket2 = Some(new_entry.clone());
-                return true;
+        if let Some(ref mut bucket2) = bucket2 {
+            if let Some(entry2) = bucket2.as_ref() {
+                if entry2.key == new_entry.key {
+                    **bucket2 = Some(new_entry.clone());
+                    return true;
+                }
             }
         }
 
@@ -68,10 +75,13 @@ where
             *bucket1 = Some(new_entry.clone());
             return true;
         }
-        if bucket2.is_none() {
-            *bucket2 = Some(new_entry.clone());
-            return true;
+        if let Some(ref mut bucket2) = bucket2 {
+            if bucket2.is_none() {
+                **bucket2 = Some(new_entry.clone());
+                return true;
+            }
         }
+
         false
     }
 
@@ -193,10 +203,8 @@ where
 
     fn resize(&self) {
         let mut table = self.table.write().unwrap();
-
-        let new_table = Self::with_capacity(table.arr.len() * 2);
-
         let elems = table.get_vec();
+        let new_table = Self::with_capacity(table.arr.len() * 2);
 
         for entry in elems {
             new_table.insert(entry.key, entry.value);
@@ -271,7 +279,7 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "[")?;
 
-        for elem in self.get_vec().iter().skip(1) {
+        for elem in self.get_vec().iter() {
             writeln!(f, "({:?}, {:?}),", elem.key, elem.value)?;
         }
         write!(f, "]")
