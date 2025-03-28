@@ -6,5 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-gxhash = "3.4.1"
-rapidhash = "1.1.0"
+
+xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
+
+[target.'cfg(loom)'.dependencies]
+loom = "0.7"
+
+# Don't show warnings about loom cfg.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
+
+[dev-dependencies]
+rand = "0.9.0"
+loom = "0.7"
