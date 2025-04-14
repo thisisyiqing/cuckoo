@@ -1,5 +1,5 @@
 #![warn(clippy::all)]
-#![cfg(loom)]
+
 use cuckoo::{CuckooHashTable, KeyVal};
 use loom::sync::Arc;
 use loom::thread;
@@ -9,19 +9,18 @@ use rand::{Rng, SeedableRng};
 fn test1() {
     // Test 10 times with different random entries
     for seed in 0..20 {
-        loom::model(move || test1_body(seed));
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        let entries: Vec<KeyVal<u32, u32>> = (0..2)
+            .map(|_| KeyVal {
+                key: rng.random(),
+                value: rng.random(),
+            })
+            .collect();
+        loom::model(move || test1_body(entries.clone()));
     }
 }
 
-fn test1_body(seed: u64) {
-    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-    let entries: Vec<KeyVal<u32, u32>> = (0..2)
-        .map(|_| KeyVal {
-            key: rng.random(),
-            value: rng.random(),
-        })
-        .collect();
-
+fn test1_body(entries: Vec<KeyVal<u32, u32>>) {
     let ht = Arc::new(CuckooHashTable::new());
 
     fn thread_func(ht: Arc<CuckooHashTable<u32, u32>>, entries: Vec<KeyVal<u32, u32>>) {

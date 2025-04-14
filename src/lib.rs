@@ -42,28 +42,32 @@ where
         (hasher.finish() % self.arr.len() as u64) as usize
     }
 
+    /// Returns the locked buckets at `idx_a` and `idx_b`.
+    /// If `idx_a == idx_b`, returns a single locked bucket.
+    /// Does the locking in ascending order to avoid deadlock.
+    fn lock_buckets(&self, idx_a: usize, idx_b: usize) -> Vec<MutexGuard<Option<KeyVal<K, V>>>> {
+        if idx_a == idx_b {
+            vec![self.arr[idx_a].lock().unwrap()]
+        } else if idx_a <= idx_b {
+            let bucket_a = self.arr[idx_a].lock().unwrap();
+            let bucket_b = self.arr[idx_b].lock().unwrap();
+            vec![bucket_a, bucket_b]
+        } else {
+            let bucket_b = self.arr[idx_b].lock().unwrap();
+            let bucket_a = self.arr[idx_a].lock().unwrap();
+            vec![bucket_a, bucket_b]
+        }
+    }
+
     fn try_direct_insert(&self, new_entry: &KeyVal<K, V>) -> bool {
         // The 2 buckets into which this new entry could go.
-        let mut bucket1 = self.arr[self.hash1(&new_entry.key)].lock().unwrap();
+        let mut locked_buckets =
+            self.lock_buckets(self.hash1(&new_entry.key), self.hash2(&new_entry.key));
 
-        let mut bucket2 = if self.hash1(&new_entry.key) != self.hash2(&new_entry.key) {
-            Some(self.arr[self.hash2(&new_entry.key)].lock().unwrap())
-        } else {
-            None
-        };
-
-        // If this key is already in the table,
-        // replace it
-        if let Some(entry1) = bucket1.as_ref() {
-            if entry1.key == new_entry.key {
-                *bucket1 = Some(new_entry.clone());
-                return true;
-            }
-        }
-        if let Some(ref mut bucket2) = bucket2 {
-            if let Some(entry2) = bucket2.as_ref() {
-                if entry2.key == new_entry.key {
-                    **bucket2 = Some(new_entry.clone());
+        for bucket in &mut locked_buckets {
+            if let Some(entry) = bucket.as_mut() {
+                if entry.key == new_entry.key {
+                    *entry = new_entry.clone();
                     return true;
                 }
             }
@@ -71,13 +75,10 @@ where
 
         // Otherwise, if there's an unused bucket,
         // place our entry there
-        if bucket1.is_none() {
-            *bucket1 = Some(new_entry.clone());
-            return true;
-        }
-        if let Some(ref mut bucket2) = bucket2 {
-            if bucket2.is_none() {
-                **bucket2 = Some(new_entry.clone());
+
+        for bucket in &mut locked_buckets {
+            if bucket.is_none() {
+                **bucket = Some(new_entry.clone());
                 return true;
             }
         }
@@ -114,10 +115,6 @@ where
                 self.hash2(&entry.key)
             };
 
-            if next_idx == index {
-                return None;
-            }
-
             path.push(next_idx);
         }
         None
@@ -126,20 +123,19 @@ where
     fn try_shift_entries(&self, path: &[usize]) -> bool {
         // Shift other entries to free up the first bucket in path
         for i in (0..path.len() - 1).rev() {
-            let mut current_bucket = self.arr[path[i]].lock().unwrap();
-            let mut next_bucket = self.arr[path[i + 1]].lock().unwrap();
+            let mut locked_buckets = self.lock_buckets(path[i], path[i + 1]);
 
             // We can't shift into an occupied bucket
-            if next_bucket.is_some() {
+            if locked_buckets[1].is_some() {
                 return false;
             }
 
             // We can't shift into the wrong bucket
-            if !self.is_valid_index(&current_bucket, path[i + 1]) {
+            if !self.is_valid_index(&locked_buckets[0], path[i + 1]) {
                 return false;
             }
 
-            *next_bucket = current_bucket.take();
+            *locked_buckets[1] = locked_buckets[0].take();
         }
 
         true
@@ -215,20 +211,15 @@ where
 
     pub fn lookup(&self, key: &K) -> Option<V> {
         let table = self.table.read().unwrap();
-        let index1 = table.hash1(key);
-        let index2 = table.hash2(key);
 
-        let bucket1 = table.arr[index1].lock().unwrap();
-        if let Some(entry1) = bucket1.as_ref() {
-            if entry1.key == *key {
-                return Some(entry1.value.clone());
+        let locked_buckets = table.lock_buckets(table.hash1(key), table.hash2(key));
+
+        for bucket in locked_buckets {
+            if let Some(entry) = bucket.as_ref() {
+                if entry.key == *key {
+                    return Some(entry.value.clone());
+                }
             }
-        }
-        drop(bucket1);
-
-        let bucket2 = table.arr[index2].lock().unwrap();
-        if let Some(entry2) = bucket2.as_ref() {
-            if entry2.key == *key {}
         }
 
         None
@@ -236,20 +227,14 @@ where
 
     pub fn remove(&self, key: &K) -> Option<V> {
         let table = self.table.read().unwrap();
-        let index1 = table.hash1(key);
-        let index2 = table.hash2(key);
 
-        let mut entry1 = table.arr[index1].lock().unwrap();
-        let taken = entry1.take_if(|kv| kv.key == *key);
-        if let Some(taken) = taken {
-            return Some(taken.value);
-        }
-        drop(entry1);
+        let locked_buckets = table.lock_buckets(table.hash1(key), table.hash2(key));
 
-        let mut entry2 = table.arr[index2].lock().unwrap();
-        let taken = entry2.take_if(|kv| kv.key == *key);
-        if let Some(taken) = taken {
-            return Some(taken.value);
+        for mut bucket in locked_buckets {
+            let taken = bucket.take_if(|kv| kv.key == *key);
+            if let Some(taken) = taken {
+                return Some(taken.value);
+            }
         }
 
         None
