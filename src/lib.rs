@@ -147,7 +147,7 @@ where
             arr_guard[path[i + 1]] = arr_guard[path[i]].take();
         }
 
-        arr_guard[0] = Some(new_entry.clone());
+        arr_guard[path[0]] = Some(new_entry.clone());
         true
     }
 
@@ -158,6 +158,10 @@ where
             .iter()
             .filter_map(|elem| elem.clone())
             .collect()
+    }
+
+    fn get_capacity(&self) -> usize {
+        self.arr.lock().unwrap().len()
     }
 }
 
@@ -183,9 +187,9 @@ where
         loop {
             let table = self.table.read().unwrap();
             // Try to insert the entry into one of the 2 possible buckets
-            if table.try_direct_insert(&keyval) {
-                return;
-            }
+            // if table.try_direct_insert(&keyval) {
+            //     return;
+            // }
             // If they're taken, try to shift entries around to make room for it
             if let Some(path) = table.find_insert_path(&keyval.key) {
                 if table.try_shift_entries(&path, &keyval) {
@@ -193,20 +197,29 @@ where
                 }
             // If that's not possible, grow the table, and switch hash
             } else {
+                let cap = table.get_capacity();
                 drop(table);
-                self.resize();
+                self.resize(cap);
             }
         }
     }
 
-    fn resize(&self) {
+    pub fn get_capacity(&self) -> usize {
+        let table = self.table.read().unwrap();
+        table.get_capacity()
+    }
+
+    fn resize(&self, prev_cap: usize) {
         let mut table = self.table.write().unwrap();
-        let elems = table.get_vec();
-        let new_table = Self::with_capacity(table.arr.lock().unwrap().len() * 2);
-        for entry in elems {
-            new_table.insert(entry.key, entry.value);
+        if prev_cap == table.get_capacity() {
+            let elems = table.get_vec();
+            let new_table = Self::with_capacity(table.arr.lock().unwrap().len() * 2);
+            for entry in elems {
+                new_table.insert(entry.key, entry.value);
+            }
+            *table = new_table.table.into_inner().unwrap();
+            println!("after resize {}", table.get_capacity());
         }
-        *table = new_table.table.into_inner().unwrap();
     }
 
     pub fn lookup(&self, key: &K) -> Option<V> {

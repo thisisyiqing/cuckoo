@@ -1,5 +1,6 @@
 #![warn(clippy::all)]
 use cuckoo::CuckooHashTable;
+use core::hash;
 use std::{sync::Arc, thread};
 
 #[test]
@@ -67,7 +68,9 @@ fn test_original() {
     for (key, value) in entries {
         let hash_table = Arc::clone(&hash_table);
 
-        let handle = thread::spawn(move || hash_table.insert(key, value));
+        let handle = thread::spawn(move || {
+            hash_table.insert(key, value);
+        });
         handles.push(handle);
     }
 
@@ -75,5 +78,7 @@ fn test_original() {
     for handle in handles {
         handle.join().unwrap();
     }
-    println!("{hash_table:?}");
+    println!("{}", hash_table.get_vec().len());
+    println!("{:?}", hash_table);
+    println!("{}", hash_table.get_capacity());
 }
