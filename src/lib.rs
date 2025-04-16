@@ -146,7 +146,9 @@ where
             // Move the entry from current bucket to next bucket
             arr_guard[path[i + 1]] = arr_guard[path[i]].take();
         }
-
+        if arr_guard[path[0]].is_some() {
+            return false;
+        }
         arr_guard[path[0]] = Some(new_entry.clone());
         true
     }
@@ -218,7 +220,6 @@ where
                 new_table.insert(entry.key, entry.value);
             }
             *table = new_table.table.into_inner().unwrap();
-            println!("after resize {}", table.get_capacity());
         }
     }
 

@@ -78,7 +78,8 @@ fn test_original() {
     for handle in handles {
         handle.join().unwrap();
     }
-    println!("{}", hash_table.get_vec().len());
+    
     println!("{:?}", hash_table);
     println!("{}", hash_table.get_capacity());
+    println!("{}", hash_table.get_vec().len());
 }
