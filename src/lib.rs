@@ -3,10 +3,10 @@ use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
 #[cfg(loom)]
-use loom::sync::{Mutex, MutexGuard, RwLock};
+use loom::sync::{Mutex, RwLock};
 
 #[cfg(not(loom))]
-use std::sync::{Mutex, MutexGuard, RwLock};
+use std::sync::{Mutex, RwLock};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyVal<K, V> {
@@ -189,9 +189,9 @@ where
         loop {
             let table = self.table.read().unwrap();
             // Try to insert the entry into one of the 2 possible buckets
-            // if table.try_direct_insert(&keyval) {
-            //     return;
-            // }
+            if table.try_direct_insert(&keyval) {
+                return;
+            }
             // If they're taken, try to shift entries around to make room for it
             if let Some(path) = table.find_insert_path(&keyval.key) {
                 if table.try_shift_entries(&path, &keyval) {
