@@ -14,6 +14,11 @@ loom = "0.7"
 [dev-dependencies]
 rand = "0.9.0"
 loom = "0.7"
+criterion = "0.5"
+
+[[bench]]
+name = "insert_benchmark"
+harness= false
 
 # Don't show warnings about loom cfg.
 [lints.rust]
