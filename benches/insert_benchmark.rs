@@ -6,14 +6,14 @@ use std::time::Duration;
 use cuckoo::CuckooHashTable;
 
 fn bench_concurrent_insert(c: &mut Criterion) {
-    const NUM_THREADS: usize = 4;
-    const INSERTS_PER_THREAD: usize = 20_000;
+    const NUM_THREADS: usize = 8;
+    const INSERTS_PER_THREAD: usize = 40_000;
 
     let mut group = c.benchmark_group("cuckoo");
 
     group
-        .measurement_time(Duration::from_secs(10))
-        .sample_size(100);
+        .measurement_time(Duration::from_secs(30))
+        .sample_size(50);
 
     group.bench_function("concurrent_insert", |b| {
         b.iter(|| {

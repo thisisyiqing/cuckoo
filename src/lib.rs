@@ -120,7 +120,7 @@ where
         None
     }
 
-    fn try_shift_entries(&self, path: &[usize]) -> bool {
+    fn try_shift_entries(&self, path: &[usize], new_entry: &KeyVal<K, V>) -> bool {
         // Shift other entries to free up the first bucket in path
         for i in (0..path.len() - 1).rev() {
             let mut locked_buckets = self.lock_buckets(path[i], path[i + 1]);
@@ -137,7 +137,11 @@ where
 
             *locked_buckets[1] = locked_buckets[0].take();
         }
-
+        let mut first_ele = self.arr[path[0]].lock().unwrap();
+        if first_ele.is_some() {
+            return false;
+        }
+        *first_ele = Some(new_entry.clone());
         true
     }
 
@@ -188,7 +192,7 @@ where
             }
             // If they're taken, try to shift entries around to make room for it
             if let Some(path) = table.find_insert_path(&keyval.key) {
-                table.try_shift_entries(&path);
+                table.try_shift_entries(&path, &keyval);
             // If that's not possible, grow the table, and switch hash
             } else {
                 drop(table);
