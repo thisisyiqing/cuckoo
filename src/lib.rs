@@ -22,7 +22,7 @@ pub struct CuckooHashTable<K, V> {
 }
 
 struct InnerTable<K, V> {
-    arr: Vec<Mutex<Option<KeyVal<K, V>>>>,
+    arr: Mutex<Vec<Option<KeyVal<K, V>>>>,
 }
 
 impl<K, V> InnerTable<K, V>
@@ -30,133 +30,133 @@ where
     K: Hash + Eq + Clone + Debug,
     V: Clone + Debug,
 {
-    fn hash1(&self, key: &K) -> usize {
-        let mut hasher = xxhash_rust::xxh3::Xxh3::with_seed(self.arr.len() as u64);
+    fn hash1(&self, key: &K, len: usize) -> usize {
+        let mut hasher = xxhash_rust::xxh3::Xxh3::with_seed(len as u64);
         key.hash(&mut hasher);
-        (hasher.finish() % self.arr.len() as u64) as usize
+        (hasher.finish() % len as u64) as usize
     }
 
-    fn hash2(&self, key: &K) -> usize {
-        let mut hasher = xxhash_rust::xxh3::Xxh3::with_seed(self.arr.len() as u64 + 1);
+    fn hash2(&self, key: &K, len: usize) -> usize {
+        let mut hasher = xxhash_rust::xxh3::Xxh3::with_seed(len as u64 + 1);
         key.hash(&mut hasher);
-        (hasher.finish() % self.arr.len() as u64) as usize
-    }
-
-    /// Returns the locked buckets at `idx_a` and `idx_b`.
-    /// If `idx_a == idx_b`, returns a single locked bucket.
-    /// Does the locking in ascending order to avoid deadlock.
-    fn lock_buckets(&self, idx_a: usize, idx_b: usize) -> Vec<MutexGuard<Option<KeyVal<K, V>>>> {
-        if idx_a == idx_b {
-            vec![self.arr[idx_a].lock().unwrap()]
-        } else if idx_a <= idx_b {
-            let bucket_a = self.arr[idx_a].lock().unwrap();
-            let bucket_b = self.arr[idx_b].lock().unwrap();
-            vec![bucket_a, bucket_b]
-        } else {
-            let bucket_b = self.arr[idx_b].lock().unwrap();
-            let bucket_a = self.arr[idx_a].lock().unwrap();
-            vec![bucket_a, bucket_b]
-        }
+        (hasher.finish() % len as u64) as usize
     }
 
     fn try_direct_insert(&self, new_entry: &KeyVal<K, V>) -> bool {
-        // The 2 buckets into which this new entry could go.
-        let mut locked_buckets =
-            self.lock_buckets(self.hash1(&new_entry.key), self.hash2(&new_entry.key));
+        let mut arr_guard = self.arr.lock().unwrap();
 
-        for bucket in &mut locked_buckets {
-            if let Some(entry) = bucket.as_mut() {
-                if entry.key == new_entry.key {
-                    *entry = new_entry.clone();
+        let hash1_idx = self.hash1(&new_entry.key, arr_guard.len());
+        let hash2_idx = self.hash2(&new_entry.key, arr_guard.len());
+
+        // If this key is already in the table, replace it
+        if let Some(entry1) = &arr_guard[hash1_idx] {
+            if entry1.key == new_entry.key {
+                arr_guard[hash1_idx] = Some(new_entry.clone());
+                return true;
+            }
+        }
+        
+        if hash1_idx != hash2_idx {
+            if let Some(entry2) = &arr_guard[hash2_idx] {
+                if entry2.key == new_entry.key {
+                    arr_guard[hash2_idx] = Some(new_entry.clone());
                     return true;
                 }
             }
         }
-
-        // Otherwise, if there's an unused bucket,
-        // place our entry there
-
-        for bucket in &mut locked_buckets {
-            if bucket.is_none() {
-                **bucket = Some(new_entry.clone());
-                return true;
-            }
+        
+        // Otherwise, if there's an unused bucket, place our entry there
+        if arr_guard[hash1_idx].is_none() {
+            arr_guard[hash1_idx] = Some(new_entry.clone());
+            return true;
         }
-
+        
+        if hash1_idx != hash2_idx && arr_guard[hash2_idx].is_none() {
+            arr_guard[hash2_idx] = Some(new_entry.clone());
+            return true;
+        }
+        
         false
     }
-
+    
     fn find_insert_path(&self, key: &K) -> Option<Vec<usize>> {
-        if let Some(path) = self.find_path_that_clears_index(self.hash1(key)) {
+        if let Some(path) = self.find_path_that_clears_index(key, 1) {
             return Some(path);
         }
-        if let Some(path) = self.find_path_that_clears_index(self.hash2(key)) {
+        if let Some(path) = self.find_path_that_clears_index(key, 2) {
             return Some(path);
         }
         None
     }
 
-    fn find_path_that_clears_index(&self, index: usize) -> Option<Vec<usize>> {
-        let mut path = vec![index];
+    fn find_path_that_clears_index(&self, key: &K, hash_num: i32) -> Option<Vec<usize>> {
+        let arr_guard = self.arr.lock().unwrap();
+        let index = if hash_num == 1 {
+            self.hash1(key, arr_guard.len())
+        } else {
+            self.hash2(key, arr_guard.len())
+        };
 
+        let mut path = vec![index];
+    
         for _ in 0..MAX_RELOCS {
             let prev_idx = *path.last().unwrap();
-            let bucket = self.arr[prev_idx].lock().unwrap();
-
-            let Some(entry) = bucket.as_ref() else {
+            
+            let Some(entry) = &arr_guard[prev_idx] else {
                 // This bucket is empty, so our shift-chain ends!
                 return Some(path);
             };
-
+    
             // Get the alternate bucket of this entry.
-            let next_idx = if self.hash1(&entry.key) != prev_idx {
-                self.hash1(&entry.key)
+            let next_idx = if self.hash1(&entry.key, arr_guard.len()) != prev_idx {
+                self.hash1(&entry.key, arr_guard.len())
             } else {
-                self.hash2(&entry.key)
+                self.hash2(&entry.key, arr_guard.len())
             };
-
+    
             path.push(next_idx);
         }
         None
     }
 
-    fn try_shift_entries(&self, path: &[usize]) -> bool {
+    fn try_shift_entries(&self, path: &[usize], new_entry: &KeyVal<K, V>) -> bool {
+        let mut arr_guard = self.arr.lock().unwrap();
+        
         // Shift other entries to free up the first bucket in path
         for i in (0..path.len() - 1).rev() {
-            let mut locked_buckets = self.lock_buckets(path[i], path[i + 1]);
-
             // We can't shift into an occupied bucket
-            if locked_buckets[1].is_some() {
+            if arr_guard[path[i + 1]].is_some() {
                 return false;
             }
-
+            
             // We can't shift into the wrong bucket
-            if !self.is_valid_index(&locked_buckets[0], path[i + 1]) {
+            if let Some(entry) = &arr_guard[path[i]] {
+                // Check if the next bucket is a valid location for this entry
+                let hash1 = self.hash1(&entry.key, arr_guard.len());
+                let hash2 = self.hash2(&entry.key, arr_guard.len());
+                
+                if path[i + 1] != hash1 && path[i + 1] != hash2 {
+                    return false;
+                }
+            } else {
+                // Current bucket is empty, nothing to shift
                 return false;
             }
-
-            *locked_buckets[1] = locked_buckets[0].take();
+            
+            // Move the entry from current bucket to next bucket
+            arr_guard[path[i + 1]] = arr_guard[path[i]].take();
         }
 
+        arr_guard[0] = Some(new_entry.clone());
         true
     }
 
-    fn is_valid_index(&self, entry: &Option<KeyVal<K, V>>, index: usize) -> bool {
-        if let Some(entry) = entry.as_ref() {
-            let i1 = self.hash1(&entry.key);
-            let i2 = self.hash2(&entry.key);
-            index == i1 || index == i2
-        } else {
-            true
-        }
-    }
-
     fn get_vec(&self) -> Vec<KeyVal<K, V>> {
-        let locked_elems: Vec<MutexGuard<'_, Option<KeyVal<K, V>>>> =
-            self.arr.iter().map(|elem| elem.lock().unwrap()).collect();
-        locked_elems
+        let arr_guard = self.arr.lock().unwrap();
+        
+        arr_guard
             .iter()
-            .filter_map(|elem| (*elem).clone())
+            .filter_map(|elem| elem.clone())
             .collect()
     }
 }
@@ -173,7 +173,7 @@ where
     fn with_capacity(capacity: usize) -> Self {
         Self {
             table: RwLock::new(InnerTable {
-                arr: (0..capacity).map(|_| Mutex::new(None)).collect(),
+                arr: Mutex::new((0..capacity).map(|_| None).collect()),
             }),
         }
     }
@@ -188,7 +188,9 @@ where
             }
             // If they're taken, try to shift entries around to make room for it
             if let Some(path) = table.find_insert_path(&keyval.key) {
-                table.try_shift_entries(&path);
+                if table.try_shift_entries(&path, &keyval) {
+                    return;
+                }
             // If that's not possible, grow the table, and switch hash
             } else {
                 drop(table);
@@ -200,25 +202,31 @@ where
     fn resize(&self) {
         let mut table = self.table.write().unwrap();
         let elems = table.get_vec();
-        let new_table = Self::with_capacity(table.arr.len() * 2);
-
+        let new_table = Self::with_capacity(table.arr.lock().unwrap().len() * 2);
         for entry in elems {
             new_table.insert(entry.key, entry.value);
         }
-
         *table = new_table.table.into_inner().unwrap();
     }
 
     pub fn lookup(&self, key: &K) -> Option<V> {
         let table = self.table.read().unwrap();
 
-        let locked_buckets = table.lock_buckets(table.hash1(key), table.hash2(key));
+        let arr_guard = table.arr.lock().unwrap();
+        let index1 = table.hash1(key, arr_guard.len());
+        let index2 = table.hash2(key, arr_guard.len());
 
-        for bucket in locked_buckets {
-            if let Some(entry) = bucket.as_ref() {
-                if entry.key == *key {
-                    return Some(entry.value.clone());
-                }
+        let bucket1 = &arr_guard[index1];
+        if let Some(entry1) = bucket1 {
+            if entry1.key == *key {
+                return Some(entry1.value.clone());
+            }
+        }
+
+        let bucket2 = &arr_guard[index2];
+        if let Some(entry2) = bucket2 {
+            if entry2.key == *key {
+                return Some(entry2.value.clone());
             }
         }
 
@@ -227,16 +235,29 @@ where
 
     pub fn remove(&self, key: &K) -> Option<V> {
         let table = self.table.read().unwrap();
+        let mut arr_guard = table.arr.lock().unwrap();
 
-        let locked_buckets = table.lock_buckets(table.hash1(key), table.hash2(key));
-
-        for mut bucket in locked_buckets {
-            let taken = bucket.take_if(|kv| kv.key == *key);
-            if let Some(taken) = taken {
+        let index1 = table.hash1(key, arr_guard.len());
+        let index2 = table.hash2(key, arr_guard.len());
+        
+        if let Some(entry) = &arr_guard[index1] {
+            if entry.key == *key {
+                // Found in the first bucket, remove it
+                let taken = arr_guard[index1].take().unwrap();
                 return Some(taken.value);
             }
         }
-
+        
+        if index1 != index2 {
+            if let Some(entry) = &arr_guard[index2] {
+                if entry.key == *key {
+                    // Found in the second bucket, remove it
+                    let taken = arr_guard[index2].take().unwrap();
+                    return Some(taken.value);
+                }
+            }
+        }
+        
         None
     }
 

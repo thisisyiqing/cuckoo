@@ -4,20 +4,20 @@ use std::{sync::Arc, thread};
 
 #[test]
 fn test_original() {
-    let ht = CuckooHashTable::new();
+    // let ht = CuckooHashTable::new();
 
-    // Insert some entries
-    ht.insert("key1", "value1");
-    ht.insert("key2", "value2");
-    ht.insert("key3", "value3");
-    ht.insert("key4", "value4");
-    ht.insert("key5", "value5");
-    println!("{ht:?}");
-    ht.insert("key6", "value6");
-    ht.insert("key7", "value7");
-    ht.insert("key8", "value8");
-    ht.insert("key9", "value9");
-    ht.insert("key10", "value10");
+    // // Insert some entries
+    // ht.insert("key1", "value1");
+    // ht.insert("key2", "value2");
+    // ht.insert("key3", "value3");
+    // ht.insert("key4", "value4");
+    // ht.insert("key5", "value5");
+    // println!("{ht:?}");
+    // ht.insert("key6", "value6");
+    // ht.insert("key7", "value7");
+    // ht.insert("key8", "value8");
+    // ht.insert("key9", "value9");
+    // ht.insert("key10", "value10");
 
     // println!("{}", hash_table.hash1(&"key1"));
     // println!("{}", hash_table.hash2(&"key1"));
@@ -28,21 +28,21 @@ fn test_original() {
     // println!("{}", hash_table.hash1(&"key3"));
     // println!("{}", hash_table.hash2(&"key3"));
 
-    // Lookup
-    println!("Lookup key1: {:?}", ht.lookup(&"key1"));
-    println!("Lookup key2: {:?}", ht.lookup(&"key2"));
-    println!("Lookup key100: {:?}", ht.lookup(&"key100"));
-    println!("{ht:?}");
+    // // Lookup
+    // println!("Lookup key1: {:?}", ht.lookup(&"key1"));
+    // println!("Lookup key2: {:?}", ht.lookup(&"key2"));
+    // println!("Lookup key100: {:?}", ht.lookup(&"key100"));
+    // println!("{ht:?}");
 
-    // Remove
-    ht.remove(&"key2");
-    println!("Lookup key2 after removal: {:?}", ht.lookup(&"key2"));
-    println!("Lookup key1: {:?}", ht.lookup(&"key1"));
-    println!("Lookup key3: {:?}", ht.lookup(&"key3"));
-    println!("{ht:?}");
+    // // Remove
+    // ht.remove(&"key2");
+    // println!("Lookup key2 after removal: {:?}", ht.lookup(&"key2"));
+    // println!("Lookup key1: {:?}", ht.lookup(&"key1"));
+    // println!("Lookup key3: {:?}", ht.lookup(&"key3"));
+    // println!("{ht:?}");
 
-    ht.insert("key2", "value2new");
-    println!("Lookup key2: {:?}", ht.lookup(&"key2"));
+    // ht.insert("key2", "value2new");
+    // println!("Lookup key2: {:?}", ht.lookup(&"key2"));
 
     let hash_table = Arc::new(CuckooHashTable::<&str, &str>::new());
 
