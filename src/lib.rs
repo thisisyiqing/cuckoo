@@ -14,7 +14,7 @@ pub struct KeyVal<K, V> {
     pub value: V,
 }
 
-const INIT_SIZE: usize = 13;
+const INIT_SIZE: usize = 400_000;
 const MAX_RELOCS: usize = 8;
 
 pub struct CuckooHashTable<K, V> {
