@@ -1,6 +1,8 @@
 #![warn(clippy::all)]
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
+use std::collections::HashSet;
+use rand::prelude::*;
 
 #[cfg(loom)]
 use loom::sync::{Mutex, MutexGuard, RwLock};
@@ -14,7 +16,7 @@ pub struct KeyVal<K, V> {
     pub value: V,
 }
 
-const INIT_SIZE: usize = 400_000;
+const INIT_SIZE: usize = 11;
 const MAX_RELOCS: usize = 8;
 
 pub struct CuckooHashTable<K, V> {
@@ -84,6 +86,48 @@ where
         }
 
         false
+    }
+
+    fn find_insert_dfs_path(&self, key: &K, depth: usize, path: &mut HashSet<usize>) -> Option<Vec<usize>> {
+        if depth > MAX_RELOCS {
+            return None;
+        }
+
+        let pos1 = self.hash1(key);
+        let pos2 = self.hash2(key);
+        for pos in [pos1, pos2] {
+            if path.contains(&pos) {
+                continue;
+            }
+
+            let bucket = self.arr[pos].lock().unwrap();
+            if bucket.as_ref().is_none() {
+                path.insert(pos);
+                return Some(path.clone().into_iter().collect());
+            }
+        }
+
+        let evict_pos = if path.contains(&pos1) && path.contains(&pos2) {
+            return None;
+        } else if path.contains(&pos1) {
+            pos2
+        } else if path.contains(&pos2) {
+            pos1
+        } else {
+            if rand::rng().random_bool(0.5) {
+                pos1
+            } else {
+                pos2
+            }
+        };
+        path.insert(evict_pos);
+        
+        let bucket = self.arr[evict_pos].lock().unwrap();
+        let Some(evicted) = bucket.as_ref() else {
+            return Some(path.clone().into_iter().collect());
+        };
+
+        self.find_insert_dfs_path(&evicted.key, depth + 1, path)
     }
 
     fn find_insert_path(&self, key: &K) -> Option<Vec<usize>> {
@@ -191,7 +235,8 @@ where
                 return;
             }
             // If they're taken, try to shift entries around to make room for it
-            if let Some(path) = table.find_insert_path(&keyval.key) {
+            let mut path = HashSet::new();
+            if let Some(path) = table.find_insert_dfs_path(&keyval.key, 0, &mut path) {
                 table.try_shift_entries(&path, &keyval);
             // If that's not possible, grow the table, and switch hash
             } else {
